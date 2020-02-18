@@ -10,4 +10,4 @@ Major Findings:
 
 • The CART model provided an in-sample misclassification rate as a 30.42% and out-of-sample misclassification rate as 46.67%.
 
-• On using the different split ratios (80:20), we observed a decrease in out-of-sample misclassification for both models.
+• On using the different split ratios (70:30 and 80:20), we observed a decrease in out-of-sample misclassification for both models.
