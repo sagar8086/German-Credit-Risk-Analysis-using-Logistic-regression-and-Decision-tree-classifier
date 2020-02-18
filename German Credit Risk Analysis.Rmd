@@ -1,0 +1,312 @@
+---
+title: "German Credit Risk Analysis using Logistic regression and Decision tree classifier"
+author: "Sagar Shah"
+date: "2/19/2020"
+output:
+  slidy_presentation: default
+  ioslides_presentation: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(PerformanceAnalytics)
+library(MASS)
+library(fpc)
+library(class)
+library(leaps)
+library(glmnet)
+library(gridExtra)
+library(dplyr)
+#library(matrixStats)
+library(faraway)
+library(glmnet)
+library(ROCR)
+library(rpart)
+```
+
+
+## R Markdown
+
+This is an R Markdown presentation. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
+
+## Slide with Bullets
+
+- Bullet 1
+- Bullet 2
+- Bullet 3
+
+## Slide with R Output
+
+```{r}
+german_credit = read.table("http://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.data")
+
+colnames(german_credit)=c("chk_acct","duration","credit_his","purpose","amount","saving_acct","present_emp","installment_rate","sex","other_debtor","present_resid","property","age","other_install","housing","n_credits","job","n_people","telephone","foreign","response")
+
+german_credit$response = german_credit$response - 1
+
+mean(german_credit$response)
+
+str(german_credit)
+summary(german_credit)
+```
+
+```{r}
+plot(jitter(response,0.1) ~ jitter(amount),german_credit, xlab="Credit Amount",ylab="Default Status",pch=".")
+plot(jitter(response,0.1) ~ jitter(duration),german_credit, xlab="Duration",ylab="Default Status",pch=".")
+plot(jitter(response,0.1) ~ jitter(installment_rate),german_credit, xlab="Installment Rate",ylab="Default Status",pch=".")
+```
+
+
+## Slide with Plot
+
+```{r}
+set.seed(13433470)
+sample_index <- sample(nrow(german_credit),nrow(german_credit)*0.70)
+german_train <- german_credit[sample_index,]
+german_test <- german_credit[-sample_index,]
+```
+
+### Logit
+```{r}
+lmod_german <- glm(response ~ . , family = binomial, data = german_train)
+summary(lmod_german)
+AIC(lmod_german)
+```
+### Probit
+```{r}
+lmod_german_p <- glm(response ~ . , family = binomial(link = "probit"), data = german_train)
+summary(lmod_german_p)
+AIC(lmod_german_p)
+```
+
+### cLogLog
+
+```{r}
+lmod_german_clog <- glm(response ~ . , family = binomial(link = "cloglog"), data = german_train)
+summary(lmod_german_clog)
+AIC(lmod_german_clog)
+```
+
+
+### Fitting Best Model
+
+**Using AIC and BIC:**
+```{r}
+base_model <- glm(response ~ 1,  family=binomial, data = german_train)
+upper_model <- lmod_german
+
+lmod_german_f_AIC <- step(base_model, direction = "forward", scope = list(lower = base_model, upper = upper_model), trace = 0)
+summary(lmod_german_f_AIC)
+AIC(lmod_german_f_AIC)
+BIC(lmod_german_f_AIC)
+
+lmod_german_b_AIC <- step(upper_model, direction = "backward", trace = 0)
+nrow(sumary(lmod_german_f_AIC)$coefficients)
+AIC(lmod_german_b_AIC)
+BIC(lmod_german_b_AIC)
+
+lmod_german_s_AIC <- step(base_model, direction = "both", scope = list(lower = base_model, upper = upper_model), trace = 0)
+summary(lmod_german_f_AIC)
+AIC(lmod_german_s_AIC)
+BIC(lmod_german_s_AIC)
+
+lmod_german_f_BIC <- step(base_model, direction = "forward", scope = list(lower = base_model, upper = upper_model), trace = 0, k = log(nrow(german_train)))
+nrow(sumary(lmod_german_f_AIC)$coefficients)
+AIC(lmod_german_f_BIC)
+BIC(lmod_german_f_BIC)
+
+lmod_german_b_BIC <- step(upper_model, direction = "backward", trace = 0, k = log(nrow(german_train)))
+nrow(sumary(lmod_german_f_AIC)$coefficients)
+AIC(lmod_german_b_BIC)
+BIC(lmod_german_b_BIC)
+
+lmod_german_s_BIC <- step(base_model, direction = "both", scope = list(lower = base_model, upper = upper_model), trace = 0, k = log(nrow(german_train)))
+summary(lmod_german_s_BIC)
+AIC(lmod_german_s_BIC)
+BIC(lmod_german_s_BIC)
+
+```
+
+
+**Using LASSO:**
+```{r}
+german_dummy <- model.matrix(~ . - response, data = german_credit)
+german.lasso <- data.frame(german_dummy[,-1])
+german.train.X <- as.matrix(german.lasso[sample_index,])
+german.test.X <- as.matrix(german.lasso[-sample_index,])
+german_dummy_response <- model.matrix(~ ., data = german_credit)
+german.lasso.response <- data.frame(german_dummy_response[,-1])
+german.train.Y <- german.lasso.response[sample_index, "response"]
+german.test.Y <- german.lasso.response[-sample_index, "response"]
+
+german.lasso_model <- glmnet(x = german.train.X, y = german.train.Y, family = "binomial")
+german.lasso.cv<- cv.glmnet(x = german.train.X, y = german.train.Y, family = "binomial", type.measure = "class")
+plot(german.lasso.cv)
+coef(german.lasso_model, s=german.lasso.cv$lambda.1se)
+```
+
+
+
+```{r}
+summary(lmod_german_s_BIC) 
+summary(lmod_german_s_AIC)
+```
+
+FInal Model : lmod_german_s_AIC
+```{r}
+pred.glm.train<- predict(lmod_german_s_AIC, type="response")
+pred <- prediction(pred.glm.train, german_train$response)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, colorize=TRUE)
+unlist(slot(performance(pred, "auc"), "y.values"))
+```
+
+
+
+
+### Misclassification rate
+```{r}
+pcut <- 1/6
+class.glm.train.opt<- (pred.glm.train>pcut)*1
+table(german_train$response, class.glm.train.opt, dnn = c("True", "Predicted"))
+MR1 <- mean(german_train$response!= class.glm.train.opt)
+MR1
+```
+
+### Out-of-Sample Performance
+```{r}
+pred.glm.test<- predict(lmod_german_s_AIC, newdata = german_test, type="response")
+pred_test <- prediction(pred.glm.test, german_test$response)
+perf_test <- performance(pred_test, "tpr", "fpr")
+plot(perf_test, colorize=TRUE)
+unlist(slot(performance(pred_test, "auc"), "y.values"))
+
+class.glm.test.opt <- (pred.glm.test > pcut)*1
+table(german_test$response, class.glm.test.opt, dnn = c("True", "Predicted"))
+MR <- mean(german_test$response!= class.glm.test.opt)
+MR
+```
+
+### Optimal Prob Cut-off
+```{r}
+costfunc = function(obs, pred.p, pcut){
+    weight1 = 5   
+    weight0 = 1   
+    c1 = (obs==1)&(pred.p<pcut)
+    c0 = (obs==0)&(pred.p>=pcut)  
+    cost = mean(weight1*c1 + weight0*c0)
+    return(cost)
+}
+p.seq = seq(0.01, 1, 0.01) 
+cost = rep(0, length(p.seq))  
+for(i in 1:length(p.seq)){ 
+    cost[i] = costfunc(obs = german_train$response, pred.p = pred.glm.train, pcut = p.seq[i])  
+}
+plot(p.seq, cost)
+
+optimal.pcut.glm = p.seq[which(cost==min(cost))]
+class.glm.train.opt1<- (pred.glm.train>optimal.pcut.glm)*1
+table(german_train$response, class.glm.train.opt1, dnn = c("True", "Predicted"))
+MR2 <- mean(german_train$response!= class.glm.train.opt1)
+MR2
+```
+
+
+### Cross Validation
+```{r}
+costfunc = function(obs, pred.p){
+    weight1 = 5   # define the weight for "true=1 but pred=0" (FN)
+    weight0 = 1    # define the weight for "true=0 but pred=1" (FP)
+    c1 = (obs==1)&(pred.p<pcut)    # count for "true=1 but pred=0"   (FN)
+    c0 = (obs==0)&(pred.p>=pcut)   # count for "true=0 but pred=1"   (FP)
+    cost = mean(weight1*c1 + weight0*c0)  # misclassification with weight
+    return(cost) # you have to return to a value when you write R functions
+} # end of the function
+```
+
+```{r}
+aucCost = function(obs, pred.p){
+  pred <- prediction(pred.p, obs)
+  auc <- unlist(slot(performance(pred, "auc"), "y.values"))
+  return(auc) # you have to return to a value when you write R functions
+} # end of the function
+
+```
+
+
+
+```{r}
+pcut = optimal.pcut.glm  
+library(boot)
+credit.glm1<- glm(response ~ chk_acct + duration + saving_acct + 
+    other_debtor + sex + installment_rate + amount + credit_his + 
+    purpose + other_install + telephone + foreign + housing, family=binomial, data=german_credit);
+cv.resultDefault <- cv.glm(data=german_credit, glmfit=credit.glm1, K=3) 
+cv.result = cv.glm(data=german_credit, glmfit=credit.glm1, cost=costfunc, K=3)
+cv.resultAUC = cv.glm(data=german_credit, glmfit=credit.glm1, cost=aucCost, K=3)
+cv.result$delta[2]
+cv.resultDefault$delta[2]
+cv.resultAUC$delta[2]
+```
+
+The above is the averaged model error.
+
+
+### Classification Tree
+```{r}
+credit.rpart0 <- rpart(formula = response ~ ., data = german_train, method = "class")
+credit.rpart <- rpart(formula = response ~ . , data = german_train, method = "class", parms = list(loss=matrix(c(0,5,1,0), nrow = 2)))
+```
+
+
+```{r}
+pred0<- predict(credit.rpart0, type="class")
+table(german_train$response, pred0, dnn = c("True", "Pred"))
+MR3 <- mean(german_train$response!= pred0)
+MR3
+```
+
+In-Sample Prediction:
+```{r}
+pred_tree<- predict(credit.rpart, type="class")
+table(german_train$response, pred_tree, dnn = c("True", "Pred"))
+MR4 <- mean(german_train$response!= pred_tree)
+MR4
+```
+
+```{r}
+credit.rpart
+prp(credit.rpart, extra = 1)
+```
+
+
+
+Out-of-Sample Prediction: (For Asymmetric Misclassification)
+```{r}
+pred_test_tree<- predict(credit.rpart,newdata = german_test,type="class")
+table(german_test$response, pred_test_tree, dnn = c("True", "Pred"))
+MR5 <- mean(german_test$response!= pred_test_tree)
+MR5
+```
+
+Out-of-Sample Prediction: (For Default)
+```{r}
+pred_test_tree0<- predict(credit.rpart0,newdata = german_test,type="class")
+table(german_test$response, pred_test_tree0, dnn = c("True", "Pred"))
+MR6 <- mean(german_test$response!= pred_test_tree0)
+MR6
+```
+
+
+
+
+
+
